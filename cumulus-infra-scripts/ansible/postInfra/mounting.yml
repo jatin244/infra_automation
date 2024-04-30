@@ -1,0 +1,22 @@
+---
+- hosts: "{{ host_tag }}"
+  tasks:
+
+  - name: Iterate EBS
+    set_fact:
+      EBSItems: "{{ item.value }}"
+    with_dict: "{{ mount }}"
+    when: item.key == EBS and EBS is defined
+
+  - name: Iterate EFS
+    set_fact:
+      EFSItems: "{{ item.value }}"
+    with_dict: "{{ mount }}"
+    when: item.key == EFS and EFS is defined
+
+  - name: Check mounted disks
+    include_tasks: check_mounts.yml
+
+  - name: Mount disks
+    include_tasks: mount_disks.yml
+    when: override == "true" or remountEFS == 1 or remountEBS == 1 or modifyEBSFSTAB is defined or modifyEFSFSTAB is defined

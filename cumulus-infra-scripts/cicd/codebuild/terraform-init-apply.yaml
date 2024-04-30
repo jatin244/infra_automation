@@ -1,0 +1,26 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - pwd
+      - ls -lrt
+      - cd $CODEBUILD_SRC_DIR
+      - pwd
+      - ls -lrt
+      - curl -s https://releases.hashicorp.com/terraform/1.6.3/terraform_1.6.3_linux_amd64.zip -o terraform.zip
+      - unzip terraform.zip -d /usr/local/bin
+      - chmod 755 /usr/local/bin/terraform
+      - /usr/local/bin/terraform --version
+      - ls -lrt
+  pre_build:
+    commands:
+      - cd infra/us-east-1/networking
+      - cat data.tf
+  build:
+    commands:
+      - ls -lart
+      - rm -rf .terraform
+      - /usr/local/bin/terraform init
+      - /usr/local/bin/terraform apply ${ENVIRONMENT}-networking.tfplan
+      

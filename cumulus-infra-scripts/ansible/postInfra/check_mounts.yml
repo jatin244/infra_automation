@@ -1,0 +1,59 @@
+  - name: Initiate check
+    set_fact: 
+      remountEBS: 0
+      remountEFS: 0
+
+  # EBS
+  - name: Check if EBS disks are added to fstab
+    shell: "cat /etc/fstab | grep '{{ item['path'] }}' | wc -l"
+    loop: "{{ EBSItems }}"
+    register: fstab_count
+    when: EBSItems is defined
+
+  - name: Set remount var if missing something in fstab for EBS
+    set_fact: 
+      modifyEBSFSTAB: 1
+    when: item.stdout == "0"
+    no_log: True 
+    loop: "{{ fstab_count.results|default([]) }}"
+
+  - name: Check if EBS disks are mounted
+    shell: "df -h | grep '{{ item['path'] }}' | wc -l"
+    loop: "{{ EBSItems }}"
+    register: mounted_disks
+    when: EBSItems is defined
+
+  - name: Set remount var if missing something in mounted disks for EBS
+    set_fact: 
+      remountEBS: 1
+    when: item.stdout == "0"
+    no_log: True
+    loop: "{{ mounted_disks.results|default([]) }}"
+
+  # EFS
+  - name: Check if EFS disks are added to fstab
+    shell: "cat /etc/fstab | grep '{{ item['path'] }}' | wc -l"
+    loop: "{{ EFSItems }}"
+    register: fstab_count
+    when: EFSItems is defined
+
+  - name: Set remount var if missing something in fstab for EFS
+    set_fact: 
+      modifyEFSFSTAB: 1
+    no_log: True
+    when: item.stdout == "0"
+    loop: "{{ fstab_count.results|default([]) }}"
+
+  - name: Check if EFS disks are mounted
+    shell: "df -h | grep '{{ item['path'] }}' | wc -l"
+    loop: "{{ EFSItems }}"
+    register: mounted_disks
+    when: EFSItems is defined
+
+  - name: Set remount var if missing something in mounted disks for EFS
+    set_fact: 
+      remountEFS: 1
+    no_log: True
+    when: item.stdout == "0" 
+    loop: "{{ mounted_disks.results|default([]) }}"
+    

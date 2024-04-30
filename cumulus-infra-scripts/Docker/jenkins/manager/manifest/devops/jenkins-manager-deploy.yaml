@@ -1,0 +1,241 @@
+#Name space for Jenkins hosting
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "jenkins"
+
+---
+#Service Account for Jenkins Manager Pod Deployment
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-manager
+  namespace: jenkins
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::366674262526:role/dvps-shrd-svs-eks-jenkins
+
+---
+#Service Account for Jenkins Agent Pod Deployment
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-agent
+  namespace: jenkins
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::366674262526:role/dvps-shrd-svs-eks-jenkins
+
+---
+#Cluster role for the service accounts of jenkins manager and agent
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: jenkins
+  namespace: jenkins
+rules:
+- apiGroups: ["*"]
+  resources: ["pods"]
+  verbs: ["create","delete","get","list","patch","update","watch"]
+- apiGroups: ["*"]
+  resources: ["pods/exec"]
+  verbs: ["create","delete","get","list","patch","update","watch"]
+- apiGroups: ["*"]
+  resources: ["pods/log"]
+  verbs: ["get","list","watch"]
+- apiGroups: ["*"]
+  resources: ["secrets"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["*"]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["create","delete","get","list","update","watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["*"]
+  resources: ["events"]
+  verbs: ["get"]
+
+---
+#Cluster role binding  for the service account of jenkins manager and agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins
+  namespace: jenkins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins
+subjects:
+- kind: ServiceAccount
+  name: jenkins-manager
+- kind: ServiceAccount
+  name: jenkins-agent
+
+---
+#Persistent volume creation for the EFS
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jenkins-manager-efs-pv
+  namespace: jenkins
+  labels:
+    app: jenkins
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-0833692497f572cc4     # EFS AWS ID to be used for PV
+
+---
+#Persistent volume claim creation for the EFS to bind with pod
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jenkins-manager-pvc
+  namespace: jenkins
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: jenkins-manager-efs-pv
+
+---
+#Jenkins Manager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins-manager
+  namespace: jenkins
+  labels:
+    app.kubernetes.io/name: jenkins
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jenkins
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jenkins
+    spec:
+      serviceAccountName: jenkins-manager # Enter the service account name being used
+      securityContext:
+        runAsUser: 0
+        fsGroup: 0
+        runAsNonRoot: false
+      containers:
+        - name: jenkins-manager
+          image: 183782844734.dkr.ecr.us-east-1.amazonaws.com/ops-utils/jenkins-manager:jenkins-2.450-jdk17 #ECR Image URI for jenkins manager   
+          imagePullPolicy: Always
+          env: 
+          - name: JAVA_OPTS
+            value: "-Dmail.smtp.starttls.enable=true -Xss1280k -Xmx3096m -Xms2048m -Dpermissive-script-security.enabled=true -Dorg.apache.commons.jelly.tags.fmt.timeZone=Asia/Kolkata  -verbose:gc -XX:+PrintGCDetails -XX:+HeapDumpOnOutOfMemoryError" #Jenkins JVM parameters
+          resources:
+            requests:
+              cpu: 2
+              memory: 4096Mi
+            limits:
+              cpu: "2"
+              memory: 4096Mi
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+              name: manager
+            - containerPort: 50000
+              protocol: TCP
+              name: jnlp
+          volumeMounts:
+            - name: jenkins-persistent-storage
+              mountPath: /var/jenkins_home
+      nodeSelector:
+        main-ng: "true"
+      volumes:
+        - name: jenkins-persistent-storage
+          persistentVolumeClaim:
+            claimName: jenkins-manager-pvc
+
+---
+#Service binding with the deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins-service
+  namespace: jenkins
+  labels:
+    app.kubernetes.io/name: jenkins
+spec:
+  selector:
+    app.kubernetes.io/name: jenkins
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 50000
+    targetPort: 50000
+    protocol: TCP
+    name: jnlp
+
+---
+#Ingress creation for ALB provisioning
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jenkins-ingress-8080
+  namespace: jenkins
+  annotations:
+    alb.ingress.kubernetes.io/group.name: jenkins-manager
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /login
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:us-east-1:366674262526:certificate/b915fead-20be-4ff0-b2d2-9a6434b0fac0"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: jenkins-service
+              port:
+                number: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jenkins-ingress-5000
+  namespace: jenkins
+  annotations:
+    alb.ingress.kubernetes.io/group.name: jenkins-manager
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 50000}]'
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: jenkins-service
+              port:
+                number: 50000

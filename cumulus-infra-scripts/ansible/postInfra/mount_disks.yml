@@ -1,0 +1,94 @@
+  - name: check disk type
+    shell: "blkid /dev/nvme0n1;"
+    ignore_errors: yes
+    register: useFDISKMounting
+  
+  - debug: msg="mount status - {{ remountEBS }} {{ useFDISKMounting }} {{ modifyEBSFSTAB is defined }} "
+
+  - name: prepare for Mounting (NVMe disks)
+    shell: "yes | mkfs.ext4 {{ item['mountPoint'] }};"
+    become: true
+    become_user: root
+    ignore_errors: yes
+    when: remountEBS == 1 and useFDISKMounting.rc == 0
+    loop: "{{ EBSItems }}" 
+  
+  - name: prepare for Mounting
+    shell: "
+    echo -e 'o\nn\np\n1\n\n\nw' | fdisk /dev/xv{{ item['mountPoint'][-2:] }};
+    yes | mkfs.ext4 /dev/xv{{ item['mountPoint'][-2:] }}1;"
+    become: true
+    become_user: root
+    ignore_errors: yes
+    register: tmp
+    when: remountEBS == 1 and useFDISKMounting.rc != 0
+    loop: "{{ EBSItems }}" 
+
+  # - debug: msg="mount status - {{ tmp }}"
+
+  - name: add EBS entries to fstab
+    shell: "echo '{{ item['mountPoint'] }}     {{ item['path'] }}   ext4    defaults        0       0' >> /etc/fstab;"
+    become: true
+    become_user: root
+    ignore_errors: yes
+    when: modifyEBSFSTAB is defined and useFDISKMounting.rc == 0
+    loop: "{{ EBSItems }}"
+    
+  - name: add EBS entries to fstab
+    shell: "echo '{{ item['mountPoint'] }}1     {{ item['path'] }}   ext4    defaults        0       0' >> /etc/fstab;"
+    become: true
+    become_user: root
+    ignore_errors: yes
+    when: modifyEBSFSTAB is defined and useFDISKMounting.rc != 0
+    loop: "{{ EBSItems }}"
+
+
+  - name: add EFS entries to fstab
+    shell: "echo '{{ item['fileSystemID'] }}.efs.{{ item['region'] }}.amazonaws.com:/ {{ item['path'] }} nfs4 defaults 0   0' >> /etc/fstab;"
+    become: true
+    become_user: root
+    ignore_errors: yes
+    when: EFSItems is defined and override != "true"
+    loop: "{{ EFSItems }}"
+
+  - name: rewrite EFS entries to fstab
+    shell: "sed -i '{{ item['path'] }}/ d' /etc/fstab;echo '{{ item['fileSystemID'] }}.efs.{{ item['region'] }}.amazonaws.com:/ {{ item['path'] }} nfs4 defaults 0   0' >> /etc/fstab;"
+    become: true
+    become_user: root
+    ignore_errors: no
+    when: EFSItems is defined and override == "true"
+    loop: "{{ EFSItems }}"
+
+  - name: mount EBS volumes
+    shell: "mkdir -p {{ item['path'] }};mount {{ item['mountPoint'] }} {{ item['path'] }};"
+    become: true
+    become_user: root
+    when: remountEBS == 1 and useFDISKMounting.rc == 0
+    loop: "{{ EBSItems }}" 
+
+  - name: mount EBS volumes (fdisk)
+    shell: "mkdir -p {{ item['path'] }};mount /dev/xv{{ item['mountPoint'][-2:] }}1 {{ item['path'] }};"
+    become: true
+    become_user: root
+    when: remountEBS == 1 and useFDISKMounting.rc != 0
+    loop: "{{ EBSItems }}" 
+
+  
+  - name: check if EFS address resolves
+    shell: "dig {{ EFSItems[0]['fileSystemID'] }}.efs.{{ EFSItems[0]['region'] }}.amazonaws.com | grep 'status: NXDOMAIN' | wc -l"
+    register: result
+    until: result.stdout == "0"
+    retries: 10
+    delay: 10
+    when: EFSItems is defined
+
+  - debug: msg="resolves - {{ result.stdout }}"
+    when: result.stdout is defined
+
+  - name: mount EFS volumes
+    shell: "mkdir -p {{ item['path'] }};mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {{ item['fileSystemID'] }}.efs.{{ item['region'] }}.amazonaws.com:/ {{ item['path'] }};"
+    become: true
+    become_user: root
+    when: remountEFS == 1 and EFSItems is defined
+    loop: "{{ EFSItems }}"
+    

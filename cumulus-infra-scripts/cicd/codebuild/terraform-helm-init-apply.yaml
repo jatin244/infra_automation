@@ -1,0 +1,31 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - pwd
+      - ls -lrt
+      - cd $CODEBUILD_SRC_DIR
+      - pwd
+      - ls -lrt
+      - curl -s https://releases.hashicorp.com/terraform/1.6.3/terraform_1.6.3_linux_amd64.zip -o terraform.zip
+      - unzip terraform.zip -d /usr/local/bin
+      - chmod 755 /usr/local/bin/terraform
+      - /usr/local/bin/terraform --version
+      - curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      - helm version --short
+      - curl -LO https://dl.k8s.io/release/v1.23.4/bin/linux/amd64/kubectl
+      - sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      - kubectl version --client
+      - ls -lrt
+  pre_build:
+    commands:
+      - cd infra/us-east-1/helm
+      - cat data.tf
+  build:
+    commands:
+      - ls -lart
+      - rm -rf .terraform
+      - /usr/local/bin/terraform init
+      - /usr/local/bin/terraform apply ${ENVIRONMENT}-helm.tfplan
+      

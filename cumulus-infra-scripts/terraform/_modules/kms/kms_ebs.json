@@ -1,0 +1,39 @@
+{
+    "Version": "2012-10-17",
+    "Id": "ebs-encryption",
+    "Statement": [
+        {
+            "Sid": "Allow access through EBS for all principals in the account that are authorized to use EBS",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "*"
+            },
+            "Action": [
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+                "kms:CreateGrant",
+                "kms:DescribeKey"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "kms:CallerAccount": "924144197303"
+                },
+                "StringLike": {
+                    "kms:ViaService": "ec2.*.amazonaws.com"
+                }
+            }
+        },
+        {
+            "Sid": "Allow direct access to key metadata to the account",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "924144197303"
+            },
+            "Action": "*",
+            "Resource": "*"
+        }
+    ]
+}

@@ -1,0 +1,35 @@
+---
+- hosts: '{{host_tag}}'
+
+  tasks:
+
+  - debug: msg="Hostname {{ ansible_hostname }}; IP {{ ansible_default_ipv4.address }}"
+
+  - name: Check for reboot lock file
+    stat:
+      path: /etc/initial-reboot.lock
+    register: reboot_lock_file
+
+  - name: Reboot
+    shell: "sleep 5 && reboot"
+    async: 1
+    poll: 0
+    when: reboot_lock_file.stat.exists == false
+    
+  - pause: seconds=30
+    when: reboot_lock_file.stat.exists == false
+
+  - name: Wait for the reboot to complete
+    wait_for_connection:
+     connect_timeout: 10
+     sleep: 5
+     delay: 5
+     timeout: 300
+    when: reboot_lock_file.stat.exists == false
+
+  - name: Create lock file after successful reboot
+    file:
+      path: /etc/initial-reboot.lock
+      state: touch
+    when: reboot_lock_file.stat.exists == false
+

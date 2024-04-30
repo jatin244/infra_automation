@@ -1,0 +1,112 @@
+---
+- name: Validate the /var/lib/etcd mount is present
+  stat:
+    path: /var/lib/etcd
+  register: mount_point_info
+
+- name: Fail if mount point does not exist
+  fail:
+    msg: "Mount /var/lib/etcd does not exist"
+  when: not mount_point_info.stat.exists
+
+- set_fact: timestamp="{{lookup('pipe','date +%Y%m%d%H%M%S')}}"
+- set_fact: tmp_home="/tmp/workspace-{{timestamp}}"
+
+- name: Create temp workspace directory on localhost
+  file:
+    path: "{{ tmp_home }}"
+    state: directory
+    mode: 0755
+  register: dir_out
+  run_once: true
+  delegate_to: 127.0.0.1
+
+- name: "Download the tarball into the tmp workspace directory"
+  get_url:
+    url: https://nex2.finxera.net/repository/prth-utilities/com/priority/etcd/3.5.4/etcd-3.5.4.tar.gz
+    dest: "{{ tmp_home }}/etcd.tar.gz"
+    force: True
+  run_once: true    
+  delegate_to: 127.0.0.1
+
+- name: "Extract the contents of the tarball"
+  unarchive:
+    src: "{{ tmp_home }}/etcd.tar.gz"
+    dest: "{{ tmp_home }}"
+    decrypt: True
+  run_once: true
+  delegate_to: 127.0.0.1
+
+#- name: Create directories for etcd
+#  file:
+#    path: "{{ item }}"
+#    state: directory
+#  with_items:
+#    - /etc/etcd
+
+- name: copy etcd executables to /usr/local/bin
+  copy:
+    src: "{{ item }}"
+    dest: /usr/local/bin
+    force: yes
+    mode: 0755
+  with_fileglob:
+    - "{{ tmp_home }}/etcd-v3.5.4-linux-amd64/etcd*"
+
+- name: Create etcd group
+  group:
+    name: etcd
+
+- name: Create etcd user
+  user:
+    name: etcd
+    comment: "etcd user"
+    home: /var/lib/etcd
+    shell: /bin/false
+    group: etcd
+
+- name: Change ownership of /var/lib/etcd
+  file:
+    path: /var/lib/etcd
+    owner: etcd
+    group: etcd
+    recurse: yes
+  become_user: root
+
+- name: Get target_ips
+  set_fact:
+    target_ips: "{{ ansible_play_hosts_all | map('extract', hostvars, 'ansible_all_ipv4_addresses') | flatten }}"
+  run_once: true
+
+- name: Create hostname:ip map of all targets
+  set_fact: 
+    host_ip_list: "{{ ansible_play_hosts_all | map('extract', hostvars, 'ansible_hostname') | zip(target_ips) | map('join', ':') | list }}"
+  run_once: true
+
+- name: List of hostname:IP map
+  debug:
+    msg: "{{ host_ip_list }}"
+  run_once: true
+
+- name: Create etcd service file
+  template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+  vars:
+    etcd_host_ip: "{{ ansible_default_ipv4.address }}"
+    etcd_host_name: "{{ ansible_hostname }}"
+    host_ip_list: "{{ host_ip_list }}"
+
+- name: Reload systemd
+  command: systemctl daemon-reload
+
+- name: Enable etcd service
+  command: systemctl enable etcd
+
+- name: Start etcd service
+  command: systemctl start etcd.service
+
+- name: Check etcd service status
+  command: systemctl status etcd.service
+
+

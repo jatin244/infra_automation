@@ -1,0 +1,14 @@
+{
+    "etcdEBS": [
+        {
+            "path":"/var/lib/etcd",
+            "mountPoint":"/dev/xvdb"
+        }
+    ],
+    "esEBS": [
+        {
+            "path":"/data",
+            "mountPoint":"/dev/sdb"
+        }
+    ]
+}

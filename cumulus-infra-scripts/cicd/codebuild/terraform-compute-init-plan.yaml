@@ -1,0 +1,42 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - curl -s https://releases.hashicorp.com/terraform/1.6.3/terraform_1.6.3_linux_amd64.zip -o terraform.zip
+      - unzip terraform.zip -d /usr/local/bin
+      - chmod 755 /usr/local/bin/terraform
+      - /usr/local/bin/terraform --version
+      - rm -rf terraform.zip
+      - ls -lrt
+  pre_build:
+    commands:
+      - cd infra/us-east-1/compute
+      - echo "terraform { " > data.tf
+      - echo "   backend \"s3\" { " >> data.tf
+      - echo "   bucket = \"$S3_BUCKET\"" >> data.tf
+      - echo "   key    = \"State-Files/${PRODUCT}/${ENVIRONMENT}/${ENVIRONMENT}-compute.tfstate\"" >> data.tf
+      - echo "   region = \"$REGION\"" >> data.tf
+      - echo "  }" >> data.tf
+      - echo "}" >> data.tf
+      - cat data.tf
+  build:
+    commands:
+      - |
+        if [ "$ACTION" = "apply" ]; then
+          /usr/local/bin/terraform init
+          /usr/local/bin/terraform plan -out=${ENVIRONMENT}-compute.tfplan --var-file=../config/${ENVIRONMENT}/${ENVIRONMENT}.tfvars --var-file=../config/${ENVIRONMENT}/${ENVIRONMENT}-compute.tfvars;
+        elif [ "$ACTION" = "destroy" ]; then
+          /usr/local/bin/terraform init
+          /usr/local/bin/terraform plan -destroy -out=${ENVIRONMENT}-compute.tfplan --var-file=../config/${ENVIRONMENT}/${ENVIRONMENT}.tfvars --var-file=../config/${ENVIRONMENT}/${ENVIRONMENT}-compute.tfvars;
+        else
+          echo "Unsupported ACTION: $ACTION. Valid values are apply or destroy."
+          exit 1
+        fi
+      - cd $CODEBUILD_SRC_DIR
+      - ls -lrt
+      - pwd
+artifacts:
+  name: ComputePlan
+  files:
+    - '**/*'

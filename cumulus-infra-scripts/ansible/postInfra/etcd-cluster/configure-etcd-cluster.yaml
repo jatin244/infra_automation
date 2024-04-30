@@ -1,0 +1,15 @@
+---
+- name: etcd database cluster
+  gather_facts: True
+  hosts: '{{host_tag}}'
+  become: true
+
+  tasks:
+    - name: Check if etcd service exists already
+      stat:
+        path: /etc/systemd/system/etcd.service
+      register: service_info
+
+    - include_tasks: etcd-cluster.yaml
+      when: service_info.stat.exists == False
+

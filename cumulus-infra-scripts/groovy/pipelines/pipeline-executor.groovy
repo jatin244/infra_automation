@@ -1,0 +1,1 @@
+evaluate(new File("${WORKSPACE}/infra-scripts/groovy/pipelines/${ARCHITECTURE}-pipeline.groovy"))

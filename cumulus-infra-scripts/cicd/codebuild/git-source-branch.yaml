@@ -1,0 +1,21 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - ls -latr
+      - git config --global credential.helper '!aws codecommit credential-helper $@'
+      - git config --global credential.UseHttpPath true
+  build:
+    commands:
+      - git branch
+      - git checkout $BRANCH
+      - git branch --set-upstream-to=origin/$(git rev-parse --abbrev-ref HEAD)
+      - git branch
+      - git pull
+      - ls -lrt
+      - pwd
+artifacts:
+  name: GitSource
+  files:
+    - '**/*'
